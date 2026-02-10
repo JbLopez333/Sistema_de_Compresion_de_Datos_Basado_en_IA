@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Compresión de Datos Basado en IA (Neural Compression)</title>
+    <!-- Aquí puedes agregar el enlace al CSS externo: <link rel="stylesheet" href="styles.css"> -->
+</head>
+<body>
+    <h1>Sistema de Compresión de Datos Basado en IA (Neural Compression)</h1>
+    <p>Sube una imagen para comprimirla usando un autoencoder neuronal simple. Este es un prototipo que demuestra compresión basada en IA (usando TensorFlow.js). La compresión reduce la resolución y reconstruye la imagen, simulando una red neuronal.</p>
+    
+    <input type="file" id="imageInput" accept="image/*">
+    <button id="compressBtn">Comprimir Imagen</button>
+    
+    <div class="container">
+        <div class="image-section">
+            <h3>Imagen Original</h3>
+            <canvas id="originalCanvas" width="256" height="256"></canvas>
+        </div>
+        <div class="image-section">
+            <h3>Imagen Comprimida (Reconstruida)</h3>
+            <canvas id="compressedCanvas" width="256" height="256"></canvas>
+        </div>
+    </div>
+    
+    <p id="status">Estado: Esperando imagen...</p>
+    
+    <!-- Incluir TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const compressBtn = document.getElementById('compressBtn');
+        const originalCanvas = document.getElementById('originalCanvas');
+        const compressedCanvas = document.getElementById('compressedCanvas');
+        const status = document.getElementById('status');
+        
+        let model = null;
+        
+        // Función para crear un autoencoder simple (encoder-decoder)
+        async function createModel() {
+            status.textContent = 'Estado: Creando modelo neuronal...';
+            
+            const inputShape = [256, 256, 3]; // Imágenes de 256x256 RGB
+            
+            // Encoder: Reduce la dimensión
+            const encoder = tf.sequential();
+            encoder.add(tf.layers.conv2d({ inputShape, filters: 32, kernelSize: 3, strides: 2, activation: 'relu', padding: 'same' }));
+            encoder.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, strides: 2, activation: 'relu', padding: 'same' }));
+            encoder.add(tf.layers.flatten());
+            encoder.add(tf.layers.dense({ units: 128, activation: 'relu' })); // Espacio latente comprimido
+            
+            // Decoder: Reconstruye la imagen
+            const decoder = tf.sequential();
+            decoder.add(tf.layers.dense({ inputShape: [128], units: 64 * 64 * 64, activation: 'relu' }));
+            decoder.add(tf.layers.reshape({ targetShape: [64, 64, 64] }));
+            decoder.add(tf.layers.conv2dTranspose({ filters: 32, kernelSize: 3, strides: 2, activation: 'relu', padding: 'same' }));
+            decoder.add(tf.layers.conv2dTranspose({ filters: 3, kernelSize: 3, strides: 2, activation: 'sigmoid', padding: 'same' })); // Salida RGB normalizada
+            
+            // Modelo completo
+            model = tf.sequential();
+            model.add(encoder);
+            model.add(decoder);
+            
+            model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+            
+            status.textContent = 'Estado: Modelo creado. Listo para comprimir.';
+        }
+        
+        // Función para procesar la imagen subida
+        async function processImage(file) {
+            const img = new Image();
+            img.onload = async () => {
+                // Dibujar imagen original en canvas
+                const ctx = originalCanvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, 256, 256);
+                
+                // Convertir a tensor
+                const tensor = tf.browser.fromPixels(originalCanvas).toFloat().div(255); // Normalizar a [0,1]
+                const input = tensor.expandDims(0); // Añadir dimensión batch
+                
+                // Comprimir y reconstruir
+                status.textContent = 'Estado: Comprimiendo...';
+                const compressed = model.predict(input);
+                
+                // Mostrar imagen comprimida
+                const compressedCtx = compressedCanvas.getContext('2d');
+                const compressedImageData = await tf.browser.toPixels(compressed.squeeze()); // Quitar dimensión batch
+                const compressedImg = new ImageData(compressedImageData, 256, 256);
+                compressedCtx.putImageData(compressedImg, 0, 0);
+                
+                status.textContent = 'Estado: Compresión completada.';
+                
+                // Limpiar tensores
+                tensor.dispose();
+                compressed.dispose();
+            };
+            img.src = URL.createObjectURL(file);
+        }
+        
+        // Evento para subir imagen
+        imageInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file && model) {
+                processImage(file);
+            } else if (file) {
+                status.textContent = 'Estado: Cargando modelo primero...';
+                createModel().then(() => processImage(file));
+            }
+        });
+        
+        // Evento para botón de compresión (opcional, ya que se activa con subida)
+        compressBtn.addEventListener('click', () => {
+            const file = imageInput.files[0];
+            if (file && model) {
+                processImage(file);
+            } else if (file) {
+                createModel().then(() => processImage(file));
+            } else {
+                status.textContent = 'Estado: Selecciona una imagen primero.';
+            }
+        });
+        
+        // Inicializar modelo al cargar la página
+        window.onload = () => {
+            createModel();
+        };
+    </script>
+</body>
+</html>
